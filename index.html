@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>가계부</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>가계부</h1>
+    <div class="month-nav">
+      <button type="button" id="prevMonth" class="icon-btn" aria-label="이전 달">‹</button>
+      <button type="button" id="monthLabel" class="month-label" title="이번 달로 이동"></button>
+      <button type="button" id="nextMonth" class="icon-btn" aria-label="다음 달">›</button>
+    </div>
+    <div class="data-actions">
+      <button type="button" id="exportBtn" class="ghost-btn">내보내기</button>
+      <label class="ghost-btn">
+        가져오기
+        <input type="file" id="importInput" accept="application/json,.json" hidden>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="card hero" id="hero" data-state="empty" aria-live="polite">
+      <div class="hero-art" id="heroArt"></div>
+      <div class="hero-text">
+        <span class="hero-tag" id="heroTag"></span>
+        <h2 id="heroTitle"></h2>
+        <p id="heroDesc"></p>
+        <div class="hero-facts" id="heroFacts"></div>
+      </div>
+    </section>
+
+    <section class="summary">
+      <div class="card"><span class="label">수입</span><strong id="sumIncome" class="income">0원</strong></div>
+      <div class="card"><span class="label">지출</span><strong id="sumExpense" class="expense">0원</strong></div>
+      <div class="card"><span class="label">저금 금액</span><strong id="sumBalance">0원</strong></div>
+    </section>
+
+    <section class="card budget">
+      <div class="section-head">
+        <h2>월 예산</h2>
+        <button type="button" id="budgetEdit" class="link-btn">설정</button>
+      </div>
+      <div id="budgetBody"></div>
+    </section>
+
+    <section class="card">
+      <h2>저금 계획</h2>
+      <div class="savings-inputs">
+        <label class="field">
+          <span>이번 달 저금 목표</span>
+          <div class="amount-wrap">
+            <input type="text" id="goalInput" inputmode="numeric" placeholder="0">
+            <span class="unit">원</span>
+          </div>
+        </label>
+        <label class="field">
+          <span>현재 은행 이자율 (연)</span>
+          <div class="amount-wrap">
+            <input type="number" id="rateInput" inputmode="decimal" min="0" max="100" step="0.01" placeholder="예: 3.5">
+            <span class="unit">%</span>
+          </div>
+        </label>
+        <label class="field">
+          <span>저금 기간</span>
+          <div class="amount-wrap wide">
+            <input type="number" id="monthsInput" inputmode="numeric" min="1" max="600" step="1">
+            <span class="unit">개월</span>
+          </div>
+        </label>
+        <label class="field">
+          <span>이자 방식</span>
+          <select id="interestType">
+            <option value="simple">적금 (단리)</option>
+            <option value="compound">월복리</option>
+          </select>
+        </label>
+      </div>
+      <div class="savings-body">
+        <div class="savings-box" id="goalStatus"></div>
+        <div class="savings-box" id="projection"></div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card" id="formCard">
+        <h2 id="formTitle">내역 추가</h2>
+        <form id="txForm" autocomplete="off">
+          <div class="type-toggle" role="radiogroup" aria-label="구분">
+            <label><input type="radio" name="type" value="expense" checked><span>지출</span></label>
+            <label><input type="radio" name="type" value="income"><span>수입</span></label>
+          </div>
+          <label class="field"><span>날짜</span><input type="date" id="date" required></label>
+          <label class="field">
+            <span>금액</span>
+            <div class="amount-wrap">
+              <input type="text" id="amount" inputmode="numeric" placeholder="0" required>
+              <span class="unit">원</span>
+            </div>
+          </label>
+          <label class="field"><span>분류</span><select id="category"></select></label>
+          <label class="field"><span>메모</span><input type="text" id="memo" maxlength="50" placeholder="예: 점심 김밥"></label>
+          <div class="form-actions">
+            <button type="button" id="cancelEdit" class="ghost-btn" hidden>취소</button>
+            <button type="submit" id="submitBtn" class="primary-btn">추가</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>분류별 지출</h2>
+        <div id="breakdown"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>내역</h2>
+        <div class="filters">
+          <select id="filterType" aria-label="구분 필터">
+            <option value="all">전체</option>
+            <option value="expense">지출</option>
+            <option value="income">수입</option>
+          </select>
+          <input type="search" id="search" placeholder="메모·분류 검색" aria-label="검색">
+        </div>
+      </div>
+      <div id="txList"></div>
+    </section>
+
+    <p class="footnote">모든 데이터는 이 브라우저에만 저장됩니다. 브라우저 데이터를 지우면 사라지니 가끔 <b>내보내기</b>로 백업해 두세요.</p>
+  </main>
+
+  <script src="art.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
