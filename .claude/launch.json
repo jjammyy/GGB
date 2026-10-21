@@ -6,6 +6,12 @@
       "runtimeExecutable": "powershell",
       "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\student\\AppData\\Local\\Temp\\claude\\C--Users-student-Desktop-GGB\\ca30408e-6eac-4a0f-bc11-a8cea156819f\\scratchpad\\serve.ps1", "-Root", "C:\\Users\\student\\Desktop\\GGB"],
       "port": 5173
+    },
+    {
+      "name": "ggb-alt",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\student\\AppData\\Local\\Temp\\claude\\C--Users-student-Desktop-GGB\\ca30408e-6eac-4a0f-bc11-a8cea156819f\\scratchpad\\serve.ps1", "-Root", "C:\\Users\\student\\Desktop\\GGB", "-Port", "5174"],
+      "port": 5174
     }
   ]
 }

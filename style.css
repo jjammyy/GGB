@@ -151,6 +151,30 @@ main {
 .empty { margin: 8px 0; color: var(--muted); font-size: 14px; }
 .footnote { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
 
+/* 오늘의 날씨 */
+.weather-date { color: var(--muted); font-size: 13px; }
+.weather-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.weather-options { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 320px; }
+.weather-options input { position: absolute; opacity: 0; pointer-events: none; }
+.weather-options span {
+  display: inline-block;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.weather-options span:hover { background: var(--surface-2); }
+.weather-options input:checked + span { border-color: var(--accent); background: var(--surface-2); color: var(--text); }
+.weather-options input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.weather-temp { flex: 0 0 140px; }
+.weather-temp input { padding-right: 40px; }
+.day-weather { margin-left: 6px; }
+
 /* 상단 상태 배너 */
 .hero {
   --hero-bg: var(--surface);

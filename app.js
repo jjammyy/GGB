@@ -4,7 +4,16 @@
   const STORAGE_KEY = 'ggb.transactions.v1';
   const BUDGET_KEY = 'ggb.budget.v1';
   const SETTINGS_KEY = 'ggb.settings.v1';
+  const WEATHER_KEY = 'ggb.weather.v1';
   const INTEREST_TAX = 0.154; // 이자소득세 15.4%
+
+  const SKIES = {
+    sunny: { icon: '☀️', label: '맑음' },
+    cloudy: { icon: '⛅', label: '구름 조금' },
+    overcast: { icon: '☁️', label: '흐림' },
+    rain: { icon: '🌧️', label: '비' },
+    snow: { icon: '❄️', label: '눈' },
+  };
 
   const CATEGORIES = {
     expense: ['식비', '카페·간식', '교통', '주거·통신', '생활용품', '쇼핑', '의료·건강', '문화·여가', '교육', '경조사', '기타'],
@@ -50,6 +59,9 @@
     interestType: $('interestType'),
     goalStatus: $('goalStatus'),
     projection: $('projection'),
+    weatherDate: $('weatherDate'),
+    weatherOptions: $('weatherOptions'),
+    weatherTemp: $('weatherTemp'),
   };
 
   // ---------- 저장소 ----------
@@ -117,15 +129,31 @@
     };
   }
 
+  // 날짜별 날씨: { 'YYYY-MM-DD': { sky, temp } }
+  function sanitizeWeather(raw) {
+    const out = {};
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    for (const [date, w] of Object.entries(raw)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || w === null || typeof w !== 'object') continue;
+      const sky = Object.hasOwn(SKIES, w.sky) ? w.sky : '';
+      const temp = Number.isFinite(w.temp) && w.temp >= -60 && w.temp <= 60 ? w.temp : null;
+      if (sky || temp !== null) out[date] = { sky, temp };
+    }
+    return out;
+  }
+
   const loadSettings = () => sanitizeSettings(storage.load(SETTINGS_KEY, {}));
+  const loadWeather = () => sanitizeWeather(storage.load(WEATHER_KEY, {}));
   const saveTransactions = () => storage.save(STORAGE_KEY, transactions);
   const saveBudget = () => storage.save(BUDGET_KEY, budget);
   const saveSettings = () => storage.save(SETTINGS_KEY, settings);
+  const saveWeather = () => storage.save(WEATHER_KEY, weather);
 
   // ---------- 상태 ----------
   let transactions = loadTransactions();
   let budget = loadBudget();
   let settings = loadSettings();
+  let weather = loadWeather();
   let heroArtState = null;
   let editingId = null;
   let editingBudget = false;
@@ -348,6 +376,44 @@
     render();
   }
 
+  // ---------- 날씨 ----------
+  const todayKey = () => toDateStr(new Date());
+  const formatTemp = (t) => `${t}°C`;
+
+  function fillWeatherOptions() {
+    el.weatherOptions.innerHTML = Object.entries(SKIES).map(([value, s]) => `
+      <label><input type="radio" name="sky" value="${value}"><span>${s.icon} ${s.label}</span></label>`).join('');
+  }
+
+  function syncWeatherInputs() {
+    const key = todayKey();
+    const w = weather[key] || { sky: '', temp: null };
+    el.weatherDate.textContent = formatDayLabel(key);
+    for (const input of el.weatherOptions.querySelectorAll('input[name="sky"]')) {
+      input.checked = input.value === w.sky;
+    }
+    el.weatherTemp.value = w.temp === null ? '' : String(w.temp);
+  }
+
+  function updateWeather(patch) {
+    const key = todayKey();
+    const next = { sky: '', temp: null, ...weather[key], ...patch };
+    if (!next.sky && next.temp === null) delete weather[key];
+    else weather[key] = next;
+    saveWeather();
+    render();
+  }
+
+  function weatherBadge(date) {
+    const w = weather[date];
+    if (!w) return '';
+    const parts = [];
+    if (w.sky) parts.push(SKIES[w.sky].icon);
+    if (w.temp !== null) parts.push(formatTemp(w.temp));
+    const title = [w.sky ? SKIES[w.sky].label : '', w.temp !== null ? formatTemp(w.temp) : ''].filter(Boolean).join(', ');
+    return ` <span class="day-weather" title="${escapeHtml(title)}">${parts.join(' ')}</span>`;
+  }
+
   function totals(list) {
     let income = 0;
     let expense = 0;
@@ -457,7 +523,7 @@
       ].filter(Boolean).join(' ');
       return `
         <div class="day">
-          <div class="day-head"><span>${formatDayLabel(date)}</span><span class="num">${dayTotals}</span></div>
+          <div class="day-head"><span>${formatDayLabel(date)}${weatherBadge(date)}</span><span class="num">${dayTotals}</span></div>
           <ul class="tx-list">${items.map(renderRow).join('')}</ul>
         </div>`;
     }).join('');
@@ -640,6 +706,36 @@
 
   el.interestType.addEventListener('change', () => updateSettings({ interestType: el.interestType.value }));
 
+  // ---------- 날씨 입력 ----------
+  el.weatherOptions.addEventListener('click', (e) => {
+    const input = e.target.closest('input[name="sky"]');
+    if (!input) return;
+    // 이미 고른 날씨를 다시 누르면 선택 해제
+    const current = (weather[todayKey()] || {}).sky;
+    if (current === input.value) {
+      input.checked = false;
+      updateWeather({ sky: '' });
+    } else {
+      updateWeather({ sky: input.value });
+    }
+  });
+
+  el.weatherTemp.addEventListener('input', () => {
+    const raw = el.weatherTemp.value;
+    if (raw === '') {
+      updateWeather({ temp: null });
+      return;
+    }
+    const v = Number(raw);
+    if (Number.isFinite(v) && v >= -60 && v <= 60) updateWeather({ temp: Math.round(v * 10) / 10 });
+  });
+  el.weatherTemp.addEventListener('change', syncWeatherInputs);
+
+  // 자정을 넘겨 다시 보면 오늘 날짜로 맞춘다
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncWeatherInputs();
+  });
+
   // ---------- 백업 ----------
   el.exportBtn.addEventListener('click', () => {
     const payload = {
@@ -648,6 +744,7 @@
       exportedAt: new Date().toISOString(),
       budget,
       settings,
+      weather,
       transactions,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -694,6 +791,11 @@
       saveSettings();
       syncSettingsInputs();
     }
+    if (parsed && !Array.isArray(parsed) && parsed.weather) {
+      weather = sanitizeWeather(parsed.weather);
+      saveWeather();
+      syncWeatherInputs();
+    }
     resetForm();
     render();
   });
@@ -711,10 +813,16 @@
       settings = loadSettings();
       syncSettingsInputs();
       render();
+    } else if (e.key === WEATHER_KEY) {
+      weather = loadWeather();
+      syncWeatherInputs();
+      render();
     }
   });
 
   // ---------- 시작 ----------
+  fillWeatherOptions();
+  syncWeatherInputs();
   syncSettingsInputs();
   fillCategories('expense');
   el.date.value = defaultDate();
