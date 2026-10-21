@@ -9,12 +9,12 @@
 <body>
   <header class="topbar">
     <h1>가계부</h1>
-    <div class="month-nav">
+    <div class="month-nav ready-only">
       <button type="button" id="prevMonth" class="icon-btn" aria-label="이전 달">‹</button>
       <button type="button" id="monthLabel" class="month-label" title="이번 달로 이동"></button>
       <button type="button" id="nextMonth" class="icon-btn" aria-label="다음 달">›</button>
     </div>
-    <div class="data-actions">
+    <div class="data-actions ready-only">
       <button type="button" id="exportBtn" class="ghost-btn">내보내기</button>
       <label class="ghost-btn">
         가져오기
@@ -24,6 +24,11 @@
   </header>
 
   <main>
+    <section class="card loading-card loading-only">
+      <p id="loadingMsg" class="empty" aria-live="polite">불러오는 중이에요…</p>
+      <button type="button" id="retryBtn" class="ghost-btn" hidden>다시 시도</button>
+    </section>
+
     <section class="card weather">
       <div class="section-head">
         <h2>서울 강남구 현재 날씨</h2>
@@ -32,6 +37,7 @@
       <div id="weatherBody" aria-live="polite"></div>
     </section>
 
+    <div class="ledger ready-only">
     <section class="card hero" id="hero" data-state="empty" aria-live="polite">
       <div class="hero-art" id="heroArt"></div>
       <div class="hero-text">
@@ -140,9 +146,11 @@
       <div id="txList"></div>
     </section>
 
-    <p class="footnote">모든 데이터는 이 브라우저에만 저장됩니다. 브라우저 데이터를 지우면 사라지니 가끔 <b>내보내기</b>로 백업해 두세요.</p>
+    <p class="footnote">모든 데이터는 Supabase 데이터베이스에 저장돼 어느 기기에서 열어도 같은 가계부가 보여요. 필요하면 <b>내보내기</b>로 따로 백업해 두세요.</p>
+    </div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script src="art.js"></script>
   <script src="app.js"></script>
 </body>

@@ -151,6 +151,12 @@ main {
 .empty { margin: 8px 0; color: var(--muted); font-size: 14px; }
 .footnote { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
 
+/* 불러오기 */
+.ledger { display: contents; }
+body:not([data-state="ready"]) .ready-only,
+body[data-state="ready"] .loading-only { display: none !important; }
+.loading-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
 /* 현재 날씨 */
 .weather-now { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
 .weather-icon { font-size: 44px; line-height: 1; }

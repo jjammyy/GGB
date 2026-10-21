@@ -1,10 +1,24 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'ggb.transactions.v1';
-  const BUDGET_KEY = 'ggb.budget.v1';
-  const SETTINGS_KEY = 'ggb.settings.v1';
-  const WEATHER_KEY = 'ggb.weather.v1';
+  // 로그인 없는 공용 가계부: 이 공개 키로 누구나 같은 데이터를 읽고 쓴다.
+  const SUPABASE_URL = 'https://twdyxomovxfpxicuooyg.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_VngNOJBs2yDhjtLqimONkA_hTL_MRuD';
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const TX_COLUMNS = 'id, date, type, category, amount, memo, created_at';
+  const PAGE_SIZE = 1000; // Supabase API가 한 번에 돌려주는 최대 행 수
+  const SETTINGS_SAVE_DELAY = 600;
+  const RELOAD_MS = 30 * 1000;
+
+  // 예전 버전이 브라우저에 저장하던 키 (처음 열 때 DB로 옮긴다)
+  const LEGACY_KEYS = {
+    transactions: 'ggb.transactions.v1',
+    budget: 'ggb.budget.v1',
+    settings: 'ggb.settings.v1',
+    weather: 'ggb.weather.v1',
+  };
   const INTEREST_TAX = 0.154; // 이자소득세 15.4%
 
   const SKIES = {
@@ -69,10 +83,12 @@
     projection: $('projection'),
     weatherRefresh: $('weatherRefresh'),
     weatherBody: $('weatherBody'),
+    loadingMsg: $('loadingMsg'),
+    retryBtn: $('retryBtn'),
   };
 
-  // ---------- 저장소 ----------
-  const storage = {
+  // ---------- 예전 브라우저 저장소 ----------
+  const legacyStorage = {
     load(key, fallback) {
       try {
         const raw = localStorage.getItem(key);
@@ -81,16 +97,26 @@
         return fallback;
       }
     },
-    save(key, value) {
+    hasAny() {
       try {
-        localStorage.setItem(key, JSON.stringify(value));
-        return true;
+        return Object.values(LEGACY_KEYS).some((k) => localStorage.getItem(k) !== null);
       } catch {
-        alert('브라우저 저장소에 저장하지 못했습니다. 저장 공간이나 브라우저 설정을 확인해 주세요.');
         return false;
       }
     },
+    clear() {
+      try {
+        Object.values(LEGACY_KEYS).forEach((k) => localStorage.removeItem(k));
+      } catch {
+        // 지우지 못해도 다음 로그인 때 다시 물어볼 뿐이다
+      }
+    },
   };
+
+  function notifyError(msg, err) {
+    console.error(err);
+    alert(`${msg}\n${err && err.message ? err.message : ''}`.trim());
+  }
 
   function isValidTx(t) {
     return t !== null && typeof t === 'object'
@@ -113,14 +139,33 @@
     };
   }
 
-  function loadTransactions() {
-    const raw = storage.load(STORAGE_KEY, []);
-    return Array.isArray(raw) ? raw.filter(isValidTx).map(normalizeTx) : [];
+  function fromRow(r) {
+    return normalizeTx({
+      id: r.id,
+      date: r.date,
+      type: r.type,
+      category: r.category,
+      amount: Number(r.amount),
+      memo: r.memo,
+      createdAt: Date.parse(r.created_at),
+    });
   }
 
-  function loadBudget() {
-    const n = Number(storage.load(BUDGET_KEY, 0));
-    return Number.isSafeInteger(n) && n > 0 ? n : 0;
+  // import_transactions RPC에 넘길 형태
+  function toImportRow(t) {
+    return {
+      date: t.date,
+      type: t.type,
+      category: t.category,
+      amount: t.amount,
+      memo: t.memo,
+      created_at: t.createdAt ? new Date(t.createdAt).toISOString() : null,
+    };
+  }
+
+  function sanitizeBudget(raw) {
+    const n = Number(raw);
+    return Number.isSafeInteger(n) && n > 0 && n <= MAX_AMOUNT ? n : 0;
   }
 
   function sanitizeSettings(raw) {
@@ -149,18 +194,14 @@
     return out;
   }
 
-  const loadSettings = () => sanitizeSettings(storage.load(SETTINGS_KEY, {}));
-  const loadWeather = () => sanitizeWeather(storage.load(WEATHER_KEY, {}));
-  const saveTransactions = () => storage.save(STORAGE_KEY, transactions);
-  const saveBudget = () => storage.save(BUDGET_KEY, budget);
-  const saveSettings = () => storage.save(SETTINGS_KEY, settings);
-  const saveWeather = () => storage.save(WEATHER_KEY, weather);
-
   // ---------- 상태 ----------
-  let transactions = loadTransactions();
-  let budget = loadBudget();
-  let settings = loadSettings();
-  let weather = loadWeather();
+  let loadedAt = 0;
+  let transactions = [];
+  let budget = 0;
+  let settings = sanitizeSettings({});
+  let weather = {};
+  let settingsTimer = 0;
+  let settingsPending = false;
   let liveWeather = null;
   let weatherLoading = false;
   let weatherError = false;
@@ -178,7 +219,6 @@
   const monthKey = () => `${viewYear}-${pad(viewMonth + 1)}`;
   const won = (n) => `${n.toLocaleString('ko-KR')}원`;
   const signedWon = (n) => (n < 0 ? '-' : '') + won(Math.abs(n));
-  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const parseAmount = (s) => Number(String(s).replace(/\D/g, '')) || 0;
 
   function escapeHtml(s) {
@@ -230,6 +270,160 @@
     const digits = input.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 12);
     input.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
   }
+
+  // ---------- Supabase ----------
+  async function selectAll(build) {
+    const rows = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      rows.push(...data);
+      if (data.length < PAGE_SIZE) return rows;
+    }
+  }
+
+  async function fetchLedger() {
+    const [txRows, wRows, s] = await Promise.all([
+      selectAll(() => db.from('transactions').select(TX_COLUMNS).order('date').order('id')),
+      selectAll(() => db.from('daily_weather').select('date, sky, temp').order('date')),
+      db.from('ledger_settings').select('*').maybeSingle(),
+    ]);
+    if (s.error) throw s.error;
+    const row = s.data;
+    return {
+      hasSettings: Boolean(row),
+      transactions: txRows.map(fromRow).filter(isValidTx),
+      budget: row ? sanitizeBudget(row.budget) : 0,
+      settings: sanitizeSettings(row ? {
+        savingsGoal: Number(row.savings_goal),
+        interestRate: Number(row.interest_rate),
+        months: row.months,
+        interestType: row.interest_type,
+      } : {}),
+      weather: sanitizeWeather(Object.fromEntries(wRows.map((r) => [
+        r.date,
+        { sky: r.sky || '', temp: r.temp === null ? null : Number(r.temp) },
+      ]))),
+    };
+  }
+
+  function applyLedger(d) {
+    transactions = d.transactions;
+    budget = d.budget;
+    settings = d.settings;
+    weather = d.weather;
+    loadedAt = Date.now();
+    if (editingId && !transactions.some((t) => t.id === editingId)) resetForm();
+    syncSettingsInputs();
+  }
+
+  async function pushSettings() {
+    const { error } = await db.from('ledger_settings').upsert({
+      id: 1, // 공용 가계부라 설정은 한 행뿐이다
+      budget,
+      savings_goal: settings.savingsGoal,
+      interest_rate: settings.interestRate,
+      months: settings.months,
+      interest_type: settings.interestType,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+  }
+
+  // 입력할 때마다 저장하지 않도록 잠깐 모았다가 저장한다
+  function saveSettings(delay = SETTINGS_SAVE_DELAY) {
+    clearTimeout(settingsTimer);
+    settingsPending = true;
+    settingsTimer = setTimeout(flushSettings, delay);
+  }
+
+  async function flushSettings() {
+    clearTimeout(settingsTimer);
+    if (!settingsPending) return;
+    settingsPending = false;
+    try {
+      await pushSettings();
+    } catch (err) {
+      notifyError('설정을 저장하지 못했어요.', err);
+    }
+  }
+
+  function weatherRows(map) {
+    return Object.entries(map).map(([date, w]) => ({ date, sky: w.sky || null, temp: w.temp }));
+  }
+
+  async function pushWeather(map, ignoreDuplicates = false) {
+    const rows = weatherRows(map);
+    if (!rows.length) return;
+    const { error } = await db.from('daily_weather').upsert(rows, { ignoreDuplicates });
+    if (error) throw error;
+  }
+
+  // 내역 날짜 옆에 보이도록 오늘 날씨를 기록한다
+  function recordWeather() {
+    if (!liveWeather) return;
+    const date = liveWeather.time.slice(0, 10);
+    weather[date] = { sky: liveWeather.sky, temp: liveWeather.temp };
+    pushWeather({ [date]: weather[date] }).catch((err) => console.error(err));
+  }
+
+  // 예전 버전에서 브라우저에만 저장해 둔 기록을 DB로 옮긴다
+  async function migrateLegacyData(hasSettings) {
+    if (!legacyStorage.hasAny()) return false;
+    const raw = legacyStorage.load(LEGACY_KEYS.transactions, []);
+    const txs = Array.isArray(raw) ? raw.filter(isValidTx).map(normalizeTx) : [];
+    if (txs.length && !confirm(`이 브라우저에만 저장돼 있던 내역 ${txs.length}건을 DB로 옮길까요?\n`
+      + '취소하면 다음에 열 때 다시 물어볼게요.')) return false;
+
+    if (txs.length) {
+      const { error } = await db.rpc('import_transactions', { rows: txs.map(toImportRow) });
+      if (error) throw error;
+    }
+    if (!hasSettings) {
+      budget = sanitizeBudget(legacyStorage.load(LEGACY_KEYS.budget, 0));
+      settings = sanitizeSettings(legacyStorage.load(LEGACY_KEYS.settings, {}));
+      await pushSettings();
+    }
+    await pushWeather(sanitizeWeather(legacyStorage.load(LEGACY_KEYS.weather, {})), true);
+    legacyStorage.clear();
+    return true;
+  }
+
+  // ---------- 불러오기 ----------
+  function setLoadState(state) {
+    document.body.dataset.state = state; // 'loading' | 'ready'
+  }
+
+  async function openLedger() {
+    setLoadState('loading');
+    el.loadingMsg.textContent = '가계부를 불러오는 중이에요…';
+    el.retryBtn.hidden = true;
+    try {
+      let d = await fetchLedger();
+      if (await migrateLegacyData(d.hasSettings)) d = await fetchLedger();
+      applyLedger(d);
+      recordWeather();
+      setLoadState('ready');
+      render();
+    } catch (err) {
+      console.error(err);
+      el.loadingMsg.textContent = `가계부를 불러오지 못했어요. ${err && err.message ? err.message : ''}`;
+      el.retryBtn.hidden = false;
+    }
+  }
+
+  async function reloadLedger() {
+    try {
+      const d = await fetchLedger();
+      if (settingsPending) return;
+      applyLedger(d);
+      render();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  el.retryBtn.addEventListener('click', openLedger);
 
   // ---------- 렌더링 ----------
   function monthTransactions() {
@@ -423,9 +617,7 @@
       };
       weatherFetchedAt = Date.now();
       weatherError = false;
-      // 내역 날짜 옆에 보이도록 그날 날씨로 기록
-      weather[liveWeather.time.slice(0, 10)] = { sky: liveWeather.sky, temp: liveWeather.temp };
-      saveWeather();
+      recordWeather();
     } catch {
       weatherError = true;
     } finally {
@@ -636,18 +828,22 @@
     render();
   }
 
-  function deleteTx(id) {
+  async function deleteTx(id) {
     const t = transactions.find((x) => x.id === id);
     if (!t) return;
     const label = `${formatDayLabel(t.date)} ${t.category} ${won(t.amount)}`;
     if (!confirm(`${label} 내역을 삭제할까요?`)) return;
+    const { error } = await db.from('transactions').delete().eq('id', id);
+    if (error) {
+      notifyError('내역을 삭제하지 못했어요.', error);
+      return;
+    }
     transactions = transactions.filter((x) => x.id !== id);
-    saveTransactions();
     if (editingId === id) resetForm();
     render();
   }
 
-  el.form.addEventListener('submit', (e) => {
+  el.form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const amount = parseAmount(el.amount.value);
     if (!amount || amount > MAX_AMOUNT) {
@@ -667,12 +863,24 @@
       memo: el.memo.value.trim(),
     };
 
-    if (editingId) {
-      transactions = transactions.map((t) => (t.id === editingId ? { ...t, ...data } : t));
-    } else {
-      transactions.push({ id: newId(), createdAt: Date.now(), ...data });
+    const id = editingId;
+    el.submitBtn.disabled = true;
+    try {
+      const query = id
+        ? db.from('transactions').update(data).eq('id', id)
+        : db.from('transactions').insert(data);
+      const { data: row, error } = await query.select(TX_COLUMNS).single();
+      if (error) throw error;
+      const saved = fromRow(row);
+      transactions = id
+        ? transactions.map((t) => (t.id === id ? saved : t))
+        : [...transactions, saved];
+    } catch (err) {
+      notifyError('내역을 저장하지 못했어요.', err);
+      return;
+    } finally {
+      el.submitBtn.disabled = false;
     }
-    saveTransactions();
 
     // 저장한 날짜의 달로 이동해 결과가 바로 보이게 한다
     const [y, m] = data.date.split('-').map(Number);
@@ -743,7 +951,7 @@
     e.preventDefault();
     const value = parseAmount($('budgetInput').value);
     budget = value <= MAX_AMOUNT ? value : 0; // 비우고 저장하면 예산 해제
-    saveBudget();
+    saveSettings(0);
     editingBudget = false;
     render();
   });
@@ -776,9 +984,14 @@
     if (!document.hidden) fetchWeather();
   }, WEATHER_REFRESH_MS);
 
-  // 오래 다른 탭에 있다 돌아오면 다시 불러온다
+  // 오래 다른 탭에 있다 돌아오면 다시 불러온다 (다른 기기·탭에서 바꾼 내역도 반영)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Date.now() - weatherFetchedAt > WEATHER_REFRESH_MS) fetchWeather();
+    if (document.hidden) {
+      flushSettings(); // 탭을 닫기 전에 모아 둔 설정을 저장한다
+      return;
+    }
+    if (Date.now() - weatherFetchedAt > WEATHER_REFRESH_MS) fetchWeather();
+    if (loadedAt && !editingId && !editingBudget && Date.now() - loadedAt > RELOAD_MS) reloadLedger();
   });
 
   // ---------- 백업 ----------
@@ -825,42 +1038,26 @@
       + `현재 저장된 ${transactions.length}건은 모두 대체됩니다. 계속할까요?`;
     if (!confirm(msg)) return;
 
-    transactions = valid;
-    saveTransactions();
-    if (parsed && !Array.isArray(parsed) && Number.isSafeInteger(parsed.budget) && parsed.budget >= 0) {
-      budget = parsed.budget;
-      saveBudget();
-    }
-    if (parsed && !Array.isArray(parsed) && parsed.settings) {
-      settings = sanitizeSettings(parsed.settings);
-      saveSettings();
-      syncSettingsInputs();
-    }
-    if (parsed && !Array.isArray(parsed) && parsed.weather) {
-      weather = sanitizeWeather(parsed.weather);
-      saveWeather();
+    try {
+      const { error } = await db.rpc('import_transactions', { rows: valid.map(toImportRow), replace: true });
+      if (error) throw error;
+      const backup = parsed && !Array.isArray(parsed) ? parsed : null;
+      if (backup && (Number.isSafeInteger(backup.budget) || backup.settings)) {
+        if (Number.isSafeInteger(backup.budget) && backup.budget >= 0) budget = sanitizeBudget(backup.budget);
+        if (backup.settings) settings = sanitizeSettings(backup.settings);
+        clearTimeout(settingsTimer);
+        settingsPending = false;
+        await pushSettings();
+      }
+      if (backup && backup.weather) await pushWeather(sanitizeWeather(backup.weather));
+      applyLedger(await fetchLedger());
+    } catch (err) {
+      notifyError('백업을 가져오지 못했어요.', err);
+      reloadLedger();
+      return;
     }
     resetForm();
     render();
-  });
-
-  // 다른 탭에서 변경하면 동기화
-  window.addEventListener('storage', (e) => {
-    if (e.key === STORAGE_KEY) {
-      transactions = loadTransactions();
-      if (editingId && !transactions.some((t) => t.id === editingId)) resetForm();
-      render();
-    } else if (e.key === BUDGET_KEY) {
-      budget = loadBudget();
-      render();
-    } else if (e.key === SETTINGS_KEY) {
-      settings = loadSettings();
-      syncSettingsInputs();
-      render();
-    } else if (e.key === WEATHER_KEY) {
-      weather = loadWeather();
-      render();
-    }
   });
 
   // ---------- 시작 ----------
@@ -869,4 +1066,5 @@
   el.date.value = defaultDate();
   render();
   fetchWeather();
+  openLedger();
 })();
