@@ -118,6 +118,7 @@
           </label>
           <label class="field"><span>분류</span><select id="category"></select></label>
           <label class="field"><span>메모</span><input type="text" id="memo" maxlength="50" placeholder="예: 점심 김밥"></label>
+          <label class="field"><span>입력한 사람</span><input type="text" id="author" maxlength="20" placeholder="이름" required></label>
           <div class="form-actions">
             <button type="button" id="cancelEdit" class="ghost-btn" hidden>취소</button>
             <button type="submit" id="submitBtn" class="primary-btn">추가</button>
@@ -140,7 +141,7 @@
             <option value="expense">지출</option>
             <option value="income">수입</option>
           </select>
-          <input type="search" id="search" placeholder="메모·분류 검색" aria-label="검색">
+          <input type="search" id="search" placeholder="메모·분류·이름 검색" aria-label="검색">
         </div>
       </div>
       <div id="txList"></div>
