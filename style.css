@@ -151,28 +151,26 @@ main {
 .empty { margin: 8px 0; color: var(--muted); font-size: 14px; }
 .footnote { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
 
-/* 오늘의 날씨 */
-.weather-date { color: var(--muted); font-size: 13px; }
-.weather-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
-.weather-options { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 320px; }
-.weather-options input { position: absolute; opacity: 0; pointer-events: none; }
-.weather-options span {
-  display: inline-block;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
+/* 현재 날씨 */
+.weather-now { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.weather-icon { font-size: 44px; line-height: 1; }
+.weather-main { display: flex; flex-direction: column; }
+.weather-temp { font-size: 28px; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.weather-sky { color: var(--muted); font-size: 14px; font-weight: 600; }
+.weather-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 0 auto; }
+.weather-facts div {
+  display: flex;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
 }
-.weather-options span:hover { background: var(--surface-2); }
-.weather-options input:checked + span { border-color: var(--accent); background: var(--surface-2); color: var(--text); }
-.weather-options input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
-.weather-temp { flex: 0 0 140px; }
-.weather-temp input { padding-right: 40px; }
+.weather-facts dt { color: var(--muted); }
+.weather-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.weather-meta { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+.weather-meta a { color: inherit; }
+.link-btn:disabled { color: var(--muted); cursor: default; }
 .day-weather { margin-left: 6px; }
 
 /* 상단 상태 배너 */
@@ -406,6 +404,7 @@ input:focus, select:focus, button:focus-visible {
 }
 
 @media (max-width: 520px) {
+  .weather-facts { margin-left: 0; width: 100%; }
   .hero { gap: 12px; padding: 12px; }
   .hero-art { flex-basis: 108px; width: 108px; }
   .hero h2 { font-size: 20px; }

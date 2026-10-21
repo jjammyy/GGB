@@ -13,7 +13,15 @@
     overcast: { icon: '☁️', label: '흐림' },
     rain: { icon: '🌧️', label: '비' },
     snow: { icon: '❄️', label: '눈' },
+    fog: { icon: '🌫️', label: '안개' },
+    thunder: { icon: '⛈️', label: '뇌우' },
   };
+
+  // 서울 강남구청 좌표 기준 현재 날씨 (Open-Meteo, API 키 불필요)
+  const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=37.5172&longitude=127.0473'
+    + '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day'
+    + '&wind_speed_unit=ms&timezone=Asia%2FSeoul';
+  const WEATHER_REFRESH_MS = 10 * 60 * 1000;
 
   const CATEGORIES = {
     expense: ['식비', '카페·간식', '교통', '주거·통신', '생활용품', '쇼핑', '의료·건강', '문화·여가', '교육', '경조사', '기타'],
@@ -59,9 +67,8 @@
     interestType: $('interestType'),
     goalStatus: $('goalStatus'),
     projection: $('projection'),
-    weatherDate: $('weatherDate'),
-    weatherOptions: $('weatherOptions'),
-    weatherTemp: $('weatherTemp'),
+    weatherRefresh: $('weatherRefresh'),
+    weatherBody: $('weatherBody'),
   };
 
   // ---------- 저장소 ----------
@@ -154,6 +161,10 @@
   let budget = loadBudget();
   let settings = loadSettings();
   let weather = loadWeather();
+  let liveWeather = null;
+  let weatherLoading = false;
+  let weatherError = false;
+  let weatherFetchedAt = 0;
   let heroArtState = null;
   let editingId = null;
   let editingBudget = false;
@@ -230,6 +241,7 @@
     const list = monthTransactions();
     const o = outlook(list);
     el.monthLabel.textContent = `${viewYear}년 ${viewMonth + 1}월`;
+    renderWeather();
     renderHero(o);
     renderSummary(list);
     renderBudget(list);
@@ -377,31 +389,82 @@
   }
 
   // ---------- 날씨 ----------
-  const todayKey = () => toDateStr(new Date());
   const formatTemp = (t) => `${t}°C`;
+  const round1 = (n) => Math.round(n * 10) / 10;
 
-  function fillWeatherOptions() {
-    el.weatherOptions.innerHTML = Object.entries(SKIES).map(([value, s]) => `
-      <label><input type="radio" name="sky" value="${value}"><span>${s.icon} ${s.label}</span></label>`).join('');
+  // WMO 날씨 코드 → 하늘 상태
+  function skyFromCode(code) {
+    if (code <= 1) return 'sunny';
+    if (code === 2) return 'cloudy';
+    if (code === 3) return 'overcast';
+    if (code === 45 || code === 48) return 'fog';
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+    if (code >= 95) return 'thunder';
+    return 'rain'; // 이슬비·비·소나기
   }
 
-  function syncWeatherInputs() {
-    const key = todayKey();
-    const w = weather[key] || { sky: '', temp: null };
-    el.weatherDate.textContent = formatDayLabel(key);
-    for (const input of el.weatherOptions.querySelectorAll('input[name="sky"]')) {
-      input.checked = input.value === w.sky;
+  async function fetchWeather() {
+    if (weatherLoading) return;
+    weatherLoading = true;
+    renderWeather();
+    try {
+      const res = await fetch(WEATHER_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const c = (await res.json()).current;
+      if (!c || !Number.isFinite(c.temperature_2m) || !Number.isFinite(c.weather_code)) throw new Error('bad data');
+      liveWeather = {
+        sky: skyFromCode(c.weather_code),
+        isDay: c.is_day !== 0,
+        temp: round1(c.temperature_2m),
+        feels: Number.isFinite(c.apparent_temperature) ? round1(c.apparent_temperature) : null,
+        humidity: Number.isFinite(c.relative_humidity_2m) ? Math.round(c.relative_humidity_2m) : null,
+        wind: Number.isFinite(c.wind_speed_10m) ? round1(c.wind_speed_10m) : null,
+        time: String(c.time), // 서울 시간 'YYYY-MM-DDTHH:MM'
+      };
+      weatherFetchedAt = Date.now();
+      weatherError = false;
+      // 내역 날짜 옆에 보이도록 그날 날씨로 기록
+      weather[liveWeather.time.slice(0, 10)] = { sky: liveWeather.sky, temp: liveWeather.temp };
+      saveWeather();
+    } catch {
+      weatherError = true;
+    } finally {
+      weatherLoading = false;
+      render();
     }
-    el.weatherTemp.value = w.temp === null ? '' : String(w.temp);
   }
 
-  function updateWeather(patch) {
-    const key = todayKey();
-    const next = { sky: '', temp: null, ...weather[key], ...patch };
-    if (!next.sky && next.temp === null) delete weather[key];
-    else weather[key] = next;
-    saveWeather();
-    render();
+  function renderWeather() {
+    el.weatherRefresh.disabled = weatherLoading;
+    el.weatherRefresh.textContent = weatherLoading ? '불러오는 중…' : '새로고침';
+
+    const w = liveWeather;
+    if (!w) {
+      el.weatherBody.innerHTML = `<p class="empty">${weatherError
+        ? '날씨를 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침을 눌러 주세요.'
+        : '날씨를 불러오는 중이에요…'}</p>`;
+      return;
+    }
+    const s = SKIES[w.sky];
+    const icon = w.sky === 'sunny' && !w.isDay ? '🌙' : s.icon;
+    const facts = [
+      w.feels !== null ? ['체감', formatTemp(w.feels)] : null,
+      w.humidity !== null ? ['습도', `${w.humidity}%`] : null,
+      w.wind !== null ? ['바람', `${w.wind}m/s`] : null,
+    ].filter(Boolean);
+    el.weatherBody.innerHTML = `
+      <div class="weather-now">
+        <span class="weather-icon" aria-hidden="true">${icon}</span>
+        <div class="weather-main">
+          <strong class="weather-temp">${formatTemp(w.temp)}</strong>
+          <span class="weather-sky">${s.label}</span>
+        </div>
+        <dl class="weather-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+      </div>
+      <p class="weather-meta">
+        ${formatDayLabel(w.time.slice(0, 10))} ${escapeHtml(w.time.slice(11, 16))} 기준${weatherError ? ' · <span class="expense">최신 날씨를 불러오지 못했어요</span>' : ''}
+        · 날씨 정보 <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
+      </p>`;
   }
 
   function weatherBadge(date) {
@@ -706,34 +769,16 @@
 
   el.interestType.addEventListener('change', () => updateSettings({ interestType: el.interestType.value }));
 
-  // ---------- 날씨 입력 ----------
-  el.weatherOptions.addEventListener('click', (e) => {
-    const input = e.target.closest('input[name="sky"]');
-    if (!input) return;
-    // 이미 고른 날씨를 다시 누르면 선택 해제
-    const current = (weather[todayKey()] || {}).sky;
-    if (current === input.value) {
-      input.checked = false;
-      updateWeather({ sky: '' });
-    } else {
-      updateWeather({ sky: input.value });
-    }
-  });
+  // ---------- 날씨 새로고침 ----------
+  el.weatherRefresh.addEventListener('click', fetchWeather);
 
-  el.weatherTemp.addEventListener('input', () => {
-    const raw = el.weatherTemp.value;
-    if (raw === '') {
-      updateWeather({ temp: null });
-      return;
-    }
-    const v = Number(raw);
-    if (Number.isFinite(v) && v >= -60 && v <= 60) updateWeather({ temp: Math.round(v * 10) / 10 });
-  });
-  el.weatherTemp.addEventListener('change', syncWeatherInputs);
+  setInterval(() => {
+    if (!document.hidden) fetchWeather();
+  }, WEATHER_REFRESH_MS);
 
-  // 자정을 넘겨 다시 보면 오늘 날짜로 맞춘다
+  // 오래 다른 탭에 있다 돌아오면 다시 불러온다
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) syncWeatherInputs();
+    if (!document.hidden && Date.now() - weatherFetchedAt > WEATHER_REFRESH_MS) fetchWeather();
   });
 
   // ---------- 백업 ----------
@@ -794,7 +839,6 @@
     if (parsed && !Array.isArray(parsed) && parsed.weather) {
       weather = sanitizeWeather(parsed.weather);
       saveWeather();
-      syncWeatherInputs();
     }
     resetForm();
     render();
@@ -815,16 +859,14 @@
       render();
     } else if (e.key === WEATHER_KEY) {
       weather = loadWeather();
-      syncWeatherInputs();
       render();
     }
   });
 
   // ---------- 시작 ----------
-  fillWeatherOptions();
-  syncWeatherInputs();
   syncSettingsInputs();
   fillCategories('expense');
   el.date.value = defaultDate();
   render();
+  fetchWeather();
 })();

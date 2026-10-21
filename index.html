@@ -26,19 +26,10 @@
   <main>
     <section class="card weather">
       <div class="section-head">
-        <h2>오늘의 날씨</h2>
-        <span class="weather-date" id="weatherDate"></span>
+        <h2>서울 강남구 현재 날씨</h2>
+        <button type="button" id="weatherRefresh" class="link-btn">새로고침</button>
       </div>
-      <div class="weather-row">
-        <div class="weather-options" id="weatherOptions" role="radiogroup" aria-label="날씨"></div>
-        <label class="field weather-temp">
-          <span>기온</span>
-          <div class="amount-wrap">
-            <input type="number" id="weatherTemp" inputmode="decimal" min="-60" max="60" step="0.1" placeholder="예: 18">
-            <span class="unit">°C</span>
-          </div>
-        </label>
-      </div>
+      <div id="weatherBody" aria-live="polite"></div>
     </section>
 
     <section class="card hero" id="hero" data-state="empty" aria-live="polite">
