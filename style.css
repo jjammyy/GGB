@@ -388,16 +388,8 @@ input:focus, select:focus, button:focus-visible {
   font-size: 12px;
   white-space: nowrap;
 }
-.tags { display: flex; align-items: center; gap: 4px; }
-.who {
-  max-width: 6em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
+.tags { display: flex; align-items: center; gap: 6px; }
+.tx-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .memo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memo.none { color: var(--muted); }
 .amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }

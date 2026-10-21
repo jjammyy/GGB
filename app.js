@@ -7,8 +7,7 @@
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const TX_COLUMNS = 'id, date, type, category, amount, memo, author, created_at';
-  const AUTHOR_KEY = 'ggb.author'; // 이 브라우저에서 마지막으로 쓴 이름 (입력 편의용)
+  const TX_COLUMNS = 'id, date, type, category, amount, memo, created_at';
   const PAGE_SIZE = 1000; // Supabase API가 한 번에 돌려주는 최대 행 수
   const SETTINGS_SAVE_DELAY = 600;
   const RELOAD_MS = 30 * 1000;
@@ -64,7 +63,6 @@
     amount: $('amount'),
     category: $('category'),
     memo: $('memo'),
-    author: $('author'),
     cancelEdit: $('cancelEdit'),
     submitBtn: $('submitBtn'),
     breakdown: $('breakdown'),
@@ -137,7 +135,6 @@
       category: t.category,
       amount: t.amount,
       memo: typeof t.memo === 'string' ? t.memo : '',
-      author: typeof t.author === 'string' ? t.author.slice(0, 20) : '',
       createdAt: Number(t.createdAt) || 0,
     };
   }
@@ -150,7 +147,6 @@
       category: r.category,
       amount: Number(r.amount),
       memo: r.memo,
-      author: r.author,
       createdAt: Date.parse(r.created_at),
     });
   }
@@ -163,7 +159,6 @@
       category: t.category,
       amount: t.amount,
       memo: t.memo,
-      author: t.author,
       created_at: t.createdAt ? new Date(t.createdAt).toISOString() : null,
     };
   }
@@ -761,7 +756,7 @@
     const q = el.search.value.trim().toLowerCase();
     const filtered = list
       .filter((t) => type === 'all' || t.type === type)
-      .filter((t) => !q || [t.memo, t.category, t.author].some((s) => s.toLowerCase().includes(q)))
+      .filter((t) => !q || t.memo.toLowerCase().includes(q) || t.category.toLowerCase().includes(q))
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 
     if (!filtered.length) {
@@ -789,14 +784,20 @@
     }).join('');
   }
 
+  // 입력한 시각. 내역 날짜와 입력한 날이 다르면 날짜도 붙인다.
+  function entryTime(t) {
+    if (!t.createdAt) return '';
+    const d = new Date(t.createdAt);
+    const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const label = toDateStr(d) === t.date ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+    return `<time class="tx-time" datetime="${d.toISOString()}" title="입력한 시간 ${toDateStr(d)} ${hm}">${label}</time>`;
+  }
+
   function renderRow(t) {
     const sign = t.type === 'income' ? '+' : '-';
     return `
       <li class="tx${t.id === editingId ? ' editing' : ''}" data-id="${escapeHtml(t.id)}">
-        <span class="tags">
-          <span class="chip">${escapeHtml(t.category)}</span>
-          ${t.author ? `<span class="who" title="입력한 사람">${escapeHtml(t.author)}</span>` : ''}
-        </span>
+        <span class="tags"><span class="chip">${escapeHtml(t.category)}</span>${entryTime(t)}</span>
         <span class="memo${t.memo ? '' : ' none'}" title="${escapeHtml(t.memo)}">${t.memo ? escapeHtml(t.memo) : '메모 없음'}</span>
         <span class="amt ${t.type}">${sign}${won(t.amount)}</span>
         <span class="row-actions">
@@ -807,23 +808,6 @@
   }
 
   // ---------- 폼 ----------
-  const savedAuthor = {
-    load() {
-      try {
-        return localStorage.getItem(AUTHOR_KEY) || '';
-      } catch {
-        return '';
-      }
-    },
-    save(name) {
-      try {
-        localStorage.setItem(AUTHOR_KEY, name);
-      } catch {
-        // 기억하지 못해도 다음에 다시 입력하면 된다
-      }
-    },
-  };
-
   function resetForm() {
     editingId = null;
     el.formCard.classList.remove('editing');
@@ -832,7 +816,6 @@
     el.cancelEdit.hidden = true;
     el.amount.value = '';
     el.memo.value = '';
-    el.author.value = savedAuthor.load();
     if (!el.date.value) el.date.value = defaultDate();
   }
 
@@ -845,7 +828,6 @@
     el.date.value = t.date;
     el.amount.value = t.amount.toLocaleString('ko-KR');
     el.memo.value = t.memo;
-    el.author.value = t.author;
     el.formCard.classList.add('editing');
     el.formTitle.textContent = '내역 수정';
     el.submitBtn.textContent = '수정';
@@ -882,21 +864,13 @@
       el.date.focus();
       return;
     }
-    const author = el.author.value.trim();
-    if (!author) {
-      alert('입력한 사람 이름을 적어 주세요.');
-      el.author.focus();
-      return;
-    }
     const data = {
       date: el.date.value,
       type: selectedType(),
       category: el.category.value,
       amount,
       memo: el.memo.value.trim(),
-      author,
     };
-    if (!editingId) savedAuthor.save(author); // 남의 내역을 고칠 때는 내 이름을 바꾸지 않는다
 
     const id = editingId;
     el.submitBtn.disabled = true;
@@ -1099,7 +1073,6 @@
   syncSettingsInputs();
   fillCategories('expense');
   el.date.value = defaultDate();
-  el.author.value = savedAuthor.load();
   render();
   fetchWeather();
   openLedger();
